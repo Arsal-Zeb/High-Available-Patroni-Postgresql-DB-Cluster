@@ -7,4 +7,6 @@ This repo contain Ansible script to setup high available 2-3-5-7... node postgre
 4. After that, run patroni script to setup patroni and PostgreSQL
 5. Check the cluster health.
 
-   # For a detailed step-by-step procedure, please follow my Medium article. Thanks
+   # For a detailed step-by-step procedure, please follow my Medium article. Thanks 
+   https://medium.com/@arsalanzeb11/building-a-highly-available-postgresql-cluster-with-patroni-and-ansible-on-rhel-9-for-production-ddeb6529f198 
+   
