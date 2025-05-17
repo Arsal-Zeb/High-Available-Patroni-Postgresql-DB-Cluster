@@ -1,0 +1,227 @@
+########################### INFORMATIONAL COMMANDS ##########################
+
+#1- create a directory /INSTALLERS and download the file etcd 3.5 latest through wget <file_name> in that directory.
+#2- wget https://ftp.postgresql.org/pub/repos/yum/common/pgdg-rhel9-extras/redhat/rhel-9-x86_64/etcd-3.5.21-1PGDG.rhel9.x86_64.rpm 
+#3- After that ansible will do the installation and configuration for etcd on all nodes
+
+#############################################################################
+
+- name: ETCD
+  hosts: etcdnodes
+  become: yes
+  become_user: root
+  gather_facts: no
+  vars:
+    FOLDER: "/INSTALLERS"
+    FILENAME: "etcd-3.5.21-1PGDG.rhel9.x86_64.rpm"    # <-- Changed to rhel9 package
+    ETCDPATH: "/etc/etcd/etcd.conf"
+    ENV: "ETCDCTL_API=3"
+  tasks:
+  - name: "[INSTALLATION OF RPM]"
+    shell: rpm -ivh /"{{ FOLDER }}"/"{{ FILENAME }}"
+
+  - name: "[Backup etcd.conf File]"
+    copy:
+      src: "{{ ETCDPATH }}"
+      dest: "/etc/etcd/etcd.conf_ORG"
+      remote_src: yes
+
+  - name: "[Stop ETCD Service]"
+    service:
+      name: etcd
+      state: stopped
+      enabled: yes
+
+  - name: "[Stop Firewall Service]"
+    service:
+      name: firewalld
+      state: stopped
+      enabled: no
+
+  - name: "[Disable SELINUX]"
+    selinux:
+      state: disabled
+
+- name: ETCD
+  hosts: etcd1
+  become: yes
+  become_user: root
+  gather_facts: no
+  vars:
+    FOLDER: "/INSTALLERS"
+    ETCDPATH: "/etc/etcd/etcd.conf"
+    ETCD_LISTEN_PEER_URLS_ETCD1IP: ETCD_LISTEN_PEER_URLS="http://MASTER_NODE_IP:2380"
+    ETCD_INITIAL_ADVERTISE_PEER_URLS_ETCD1IP: ETCD_INITIAL_ADVERTISE_PEER_URLS="http://MASTER_NODE_IP:2380"
+    ETCD_ADVERTISE_CLIENT_URLS_ETCD1IP: ETCD_ADVERTISE_CLIENT_URLS="http://MASTER_NODE_IP:2379"
+    ETCD_LISTEN_CLIENT_URLS_ETCD1IP: ETCD_LISTEN_CLIENT_URLS="http://MASTER_NODE_IP:2379"
+
+    ETCD1NAME: Ansible-NW01
+
+    DEFAULT_ETCD_ADVERTISE_CLIENT_URLS: ETCD_ADVERTISE_CLIENT_URLS="http://localhost:2379"
+    DEFAULT_ETCD_INITIAL_CLUSTER_TOKEN:
+    DEFAULT_ETCD_INITIAL_CLUSTER_STATE:
+
+    NODEA: Ansible-NW01=http://MASTER_NODE_IP:2380
+    NODEB: Ansible-NW02=http://SECONDARY_NODE_IP:2380
+
+  tasks:
+  - name: "[ETCD CONFIGURATION1]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      line: "{{ ETCD_LISTEN_PEER_URLS_ETCD1IP }}"
+      insertbefore: ^#ETCD_LISTEN_PEER_URLS="http://localhost:2380"
+
+  - name: "[ETCD CONFIGURATION2]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      line: "{{ ETCD_LISTEN_CLIENT_URLS_ETCD1IP }}"
+      insertbefore: ETCD_LISTEN_CLIENT_URLS="http://localhost:2379"
+
+  - name: "[ETCD CONFIGURATION3]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      regexp: ^ETCD_LISTEN_CLIENT_URLS="http://localhost:2379"
+      state: absent
+
+  - name: "[ETCD CONFIGURATION4]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      line: ETCD_NAME="{{ ETCD1NAME }}"
+      insertafter: ^ETCD_NAME="default"
+
+  - name: "[ETCD CONFIGURATION5]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      regexp: ^ETCD_NAME="default"
+      state: absent
+
+  - name: "[ETCD CONFIGURATION6]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      line: "{{ ETCD_INITIAL_ADVERTISE_PEER_URLS_ETCD1IP }}"
+      insertafter: ^#ETCD_INITIAL_ADVERTISE_PEER_URLS
+
+  - name: "[ETCD CONFIGURATION7]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      line: "{{ ETCD_ADVERTISE_CLIENT_URLS_ETCD1IP }}"
+      insertafter: ^ETCD_ADVERTISE_CLIENT_URLS="http://localhost:2379"
+
+  - name: "[ETCD CONFIGURATION8]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      regexp: ETCD_ADVERTISE_CLIENT_URLS="http://localhost:2379"
+      state: absent
+
+  - name: "[ETCD CONFIGURATION9]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      line: ETCD_INITIAL_CLUSTER="{{ NODEA }},{{ NODEB }}"
+      insertafter: ^#ETCD_INITIAL_CLUSTER=
+      firstmatch: yes
+
+  - name: "[ETCD CONFIGURATION10]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      line: ETCD_INITIAL_CLUSTER_TOKEN="etcd-cluster"
+      insertafter: ^#ETCD_INITIAL_CLUSTER_TOKEN
+
+  - name: "[ETCD CONFIGURATION11]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      line: ETCD_INITIAL_CLUSTER_STATE="new"
+      insertafter: ^#ETCD_INITIAL_CLUSTER_STATE=
+      firstmatch: true
+
+- name: ETCD
+  hosts: etcd2
+  become: yes
+  become_user: root
+  gather_facts: no
+  vars:
+    FOLDER: "/INSTALLERS"
+    URL: "https://ftp.postgresql.org/pub/repos/yum/common/pgdg-rhel9-extras/redhat/rhel-9-x86_64/etcd-3.5.21-1PGDG.rhel9.x86_64.rpm" # <-- updated package for RHEL9
+    FILENAME: "etcd-3.5.21-1PGDG.rhel9.x86_64.rpm"
+    ETCDPATH: "/etc/etcd/etcd.conf"
+
+    ETCD_LISTEN_PEER_URLS_ETCD2IP: ETCD_LISTEN_PEER_URLS="http://SECONDARY_NODE_IP:2380"
+    ETCD_INITIAL_ADVERTISE_PEER_URLS_ETCD2IP: ETCD_INITIAL_ADVERTISE_PEER_URLS="http://SECONDARY_NODE_IP:2380"
+    ETCD_ADVERTISE_CLIENT_URLS_ETCD2IP: ETCD_ADVERTISE_CLIENT_URLS="http://SECONDARY_NODE_IP:2379"
+    ETCD_LISTEN_CLIENT_URLS_ETCD2IP: ETCD_LISTEN_CLIENT_URLS="http://SECONDARY_NODE_IP:2379"
+
+    ETCD2NAME: Ansible-NW02
+
+    DEFAULT_ETCD_ADVERTISE_CLIENT_URLS: ETCD_ADVERTISE_CLIENT_URLS="http://localhost:2379"
+    DEFAULT_ETCD_INITIAL_CLUSTER_TOKEN:
+    DEFAULT_ETCD_INITIAL_CLUSTER_STATE:
+
+    NODEA: Ansible-NW01=http://MASTER_NODE_IP:2380
+    NODEB: Ansible-NW02=http://SECONDARY_NODE_IP:2380
+
+  tasks:
+  - name: "[ETCD CONFIGURATION1]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      line: "{{ ETCD_LISTEN_PEER_URLS_ETCD2IP }}"
+      insertbefore: ^#ETCD_LISTEN_PEER_URLS="http://localhost:2380"
+
+  - name: "[ETCD CONFIGURATION2]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      line: "{{ ETCD_LISTEN_CLIENT_URLS_ETCD2IP }}"
+      insertbefore: ETCD_LISTEN_CLIENT_URLS="http://localhost:2379"
+
+  - name: "[ETCD CONFIGURATION3]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      regexp: ^ETCD_LISTEN_CLIENT_URLS="http://localhost:2379"
+      state: absent
+
+  - name: "[ETCD CONFIGURATION4]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      line: ETCD_NAME="{{ ETCD2NAME }}"
+      insertafter: ^ETCD_NAME="default"
+
+  - name: "[ETCD CONFIGURATION5]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      regexp: ^ETCD_NAME="default"
+      state: absent
+
+  - name: "[ETCD CONFIGURATION6]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      line: "{{ ETCD_INITIAL_ADVERTISE_PEER_URLS_ETCD2IP }}"
+      insertafter: ^#ETCD_INITIAL_ADVERTISE_PEER_URLS
+
+  - name: "[ETCD CONFIGURATION7]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      line: "{{ ETCD_ADVERTISE_CLIENT_URLS_ETCD2IP }}"
+      insertafter: ^ETCD_ADVERTISE_CLIENT_URLS="http://localhost:2379"
+
+  - name: "[ETCD CONFIGURATION8]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      regexp: ETCD_ADVERTISE_CLIENT_URLS="http://localhost:2379"
+      state: absent
+
+  - name: "[ETCD CONFIGURATION9]"
+    lineinfile:
+      path: "{{ ETCDPATH }}"
+      line: ETCD_INITIAL_CLUSTER="{{ NODEA }},{{ NODEB }}"
+      insertafter: ^#ETCD_INITIAL_CLUSTER=
+      firstmatch: yes
+
+- name: ETCD
+  hosts: etcdnodes
+  become: yes
+  become_user: root
+  gather_facts: no
+  tasks:
+  - name: "[Start ETCD Service]"
+    service:
+      name: etcd
+      state: started
+      enabled: yes

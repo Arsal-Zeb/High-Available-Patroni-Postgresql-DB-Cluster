@@ -1,0 +1,255 @@
+##################################################
+
+#This script will install latest PG (PG 17 as of now and Patroni)
+# After installation will do the all the configuration,
+# Please Change MASTER_NODE_IP, SECONDARY_NODE_IP and Postgres password (YOUR_PASSWORD)
+
+##################################################
+
+- name: PATRONI_0
+  hosts: etcdnodes
+  become: yes
+  become_user: root
+  gather_facts: no
+  vars:
+     YUMCLEAN: rm -rfv /var/cache/yum/* && yum clean all
+     PG_REPO: https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm
+     EPEL_REPO: https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+     DISABLE_PG: sudo dnf -qy module disable postgresql
+     INSTALL_PG: postgresql17-server
+     INST_PATRONIETCD: sudo dnf install -y patroni-etcd.noarch
+     INST_PATRONI: sudo dnf install -y patroni
+     INST_PYTHON_CERTI: sudo dnf install -y python3-certifi.noarch
+     INST_PYTHON36: sudo dnf install -y python3.x86_64
+     PATRONIPATH_LOG: /var/log/patroni/patroni.log
+  tasks:
+  - name: "[YUMCLEAN]"
+    shell: "{{ YUMCLEAN }}"
+
+  - name: "[PG REPO INSTALL]"
+    shell: sudo dnf install -y "{{ PG_REPO }}"
+
+  - name: "[EPEL REPO INSTALL]"
+    shell: sudo dnf install -y "{{ EPEL_REPO }}"
+
+  - name: "[DISABLE THE PG]"
+    shell: "{{ DISABLE_PG }}"
+
+  - name: "[INSTALL THE PG]"
+    shell: sudo dnf install -y "{{ INSTALL_PG }}"
+
+  - name: "[INSTALLATION OF PYTHON36]"
+    shell: "{{ INST_PYTHON36 }}"
+
+  - name: "[INIT OF PATRONI_ETCD]"
+    shell: "{{ INST_PATRONIETCD }}"
+
+  - name: "[INSTALLATION OF PATRONI]"
+    shell: "{{ INST_PATRONI }}"
+
+  - name: "[INSTALLATION OF PYTHON_CERTI]"
+    shell: "{{ INST_PYTHON_CERTI }}"
+
+  - name: "[Creating an empty file for patroni.log]"
+    file:
+      path: "{{ PATRONIPATH_LOG }}"
+      state: touch
+      owner: postgres
+      group: postgres
+      mode: 0775
+
+- name: PATRONI_01
+  hosts: etcd1
+  become: yes
+  become_user: root
+  gather_facts: no
+  vars:
+     PATRONIPATH: /etc/patroni/patroni.yml
+     PATRONIPATH_ORG: /etc/patroni/patroni.yml_ORG
+     HOST1: "MASTER_NODE_IP"
+     API_CONNECT_ADDR: MASTER_NODE_IP
+     PG_CONNECT_ADDR: MASTER_NODE_IP
+     LISTEN_ADDR: MASTER_NODE_IP
+     ETC_HOSTS: MASTER_NODE_IP:2379,SECONDARY_NODE_IP:2379
+     DATA_DIR: /var/lib/pgsql/17/data
+     BIN_DIR: /usr/pgsql-17/bin
+  tasks:
+  - name: "[Creating an empty file for patroni]"
+    file:
+      path: "{{ PATRONIPATH }}"
+      state: touch
+      owner: root
+      group: root
+      mode: 0775
+
+  - name: "[Backup patroni.conf File]"
+    copy:
+      src: "{{ PATRONIPATH }}"
+      dest: "{{ PATRONIPATH_ORG }}"
+      remote_src: yes
+
+  - name: "[CONTENT ADD IN PATRONIFILE]"
+    blockinfile:
+     path: "{{ PATRONIPATH }}"
+     block: |
+       scope: PATRONI_HA
+       name: "{{ HOST1 }}"
+       namespace: /PATRONI_NS/
+
+       restapi:
+         listen: {{ LISTEN_ADDR }}:8008
+         connect_address: {{ API_CONNECT_ADDR }}:8008
+
+       etcd3:
+         hosts: "{{ ETC_HOSTS }}"
+         protocol: http
+
+       bootstrap:
+         dcs:
+           ttl: 30
+           loop_wait: 10
+           retry_timeout : 10
+           maximum_lag_on_failover: 1048576
+           postgresql:
+             use_pg_rewind: true
+             parameters:
+               wal_keep_segments: 100
+         initdb:
+         - encoding: UTF8
+         - data-checksums
+
+         pg_hba:
+         - host replication replicator 0.0.0.0/0 password
+         - host all all 0.0.0.0/0 password
+         users:
+
+       postgresql:
+         listen: "*:5432"
+         connect_address: {{ PG_CONNECT_ADDR }}:5432
+         data_dir: "{{ DATA_DIR }}"
+         bin_dir: "{{ BIN_DIR }}"
+         pgpass: /tmp/pgpass0
+         authentication:
+           replication:
+             username: replicator
+             password: replicator
+           superuser:
+             username: postgres
+             password: YOUR_PASSWORD
+           rewind:
+             username: rewind_user
+             password: rewind
+
+       log:
+         dir: /var/log/patroni/
+         level: INFO
+
+  - name: "[Start PATRONI Service]"
+    service:
+      name: patroni
+      state: started
+      enabled: yes
+
+- name: PATRONI_02
+  hosts: etcd2
+  become: yes
+  become_user: root
+  gather_facts: no
+  vars:
+     PATRONIPATH: /etc/patroni/patroni.yml
+     PATRONIPATH_ORG: /etc/patroni/patroni.yml_ORG
+     HOST2: "SECONDARY_NODE_IP"
+     API_CONNECT_ADDR: SECONDARY_NODE_IP
+     PG_CONNECT_ADDR: SECONDARY_NODE_IP
+     LISTEN_ADDR: SECONDARY_NODE_IP
+     ETC_HOSTS: MASTER_NODE_IP:2379,SECONDARY_NODE_IP:2379
+     DATA_DIR: /var/lib/pgsql/17/data
+     BIN_DIR: /usr/pgsql-17/bin
+  tasks:
+  - name: "[Creating an empty file for patroni]"
+    file:
+      path: "{{ PATRONIPATH }}"
+      state: touch
+      owner: root
+      group: root
+      mode: 0775
+
+  - name: "[Backup patroni.conf File]"
+    copy:
+      src: "{{ PATRONIPATH }}"
+      dest: "{{ PATRONIPATH_ORG }}"
+      remote_src: yes
+
+  - name: "[CONTENT ADD IN PATRONIFILE]"
+    blockinfile:
+     path: "{{ PATRONIPATH }}"
+     block: |
+       scope: PATRONI_HA
+       name: "{{ HOST2 }}"
+       namespace: /PATRONI_NS/
+
+       restapi:
+         listen: {{ LISTEN_ADDR }}:8008
+         connect_address: {{ API_CONNECT_ADDR }}:8008
+
+       etcd3:
+         hosts: "{{ ETC_HOSTS }}"
+         protocol: http
+
+       bootstrap:
+         dcs:
+           ttl: 30
+           loop_wait: 10
+           retry_timeout : 10
+           maximum_lag_on_failover: 1048576
+           postgresql:
+             use_pg_rewind: true
+             parameters:
+               wal_keep_segments: 100
+         initdb:
+         - encoding: UTF8
+         - data-checksums
+
+         pg_hba:
+         - host replication replicator 0.0.0.0/0 password
+         - host all all 0.0.0.0/0 password
+         users:
+
+       postgresql:
+         listen: "*:5432"
+         connect_address: {{ PG_CONNECT_ADDR }}:5432
+         data_dir: "{{ DATA_DIR }}"
+         bin_dir: "{{ BIN_DIR }}"
+         pgpass: /tmp/pgpass0
+         authentication:
+           replication:
+             username: replicator
+             password: replicator
+           superuser:
+             username: postgres
+             password: YOUR_PASSWORD
+           rewind:
+             username: rewind_user
+             password: rewind
+
+       log:
+         dir: /var/log/patroni/
+         level: INFO
+
+  - name: "[Start PATRONI Service]"
+    service:
+      name: patroni
+      state: started
+      enabled: yes
+
+- name: PATRONI04
+  hosts: etcdnodes
+  become: yes
+  become_user: root
+  gather_facts: no
+  tasks:
+  - name: "[STOP PG]"
+    service:
+      name: postgresql-17
+      state: stopped
+      enabled: no
